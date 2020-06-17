@@ -1,0 +1,56 @@
+!mkdir -p ~/.kaggle
+!cp kaggle.json ~/.kaggle/
+!chmod 600 /root/.kaggle/kaggle.json
+!kaggle datasets download nikitarom/planets-dataset 
+!unzip planets-dataset.zip -d data
+df = pd.read_csv("/content/data/planet/planet/train_classes.csv")
+
+image_name	tags
+0	train_0	haze primary
+1	train_1	agriculture clear primary water
+2	train_2	clear primary
+3	train_3	clear primary
+4	train_4	agriculture clear habitation primary road
+
+tfms = get_transforms(flip_vert=True, max_lighting=0.1, max_warp=0., max_zoom=1.05)
+path = "/content/data/planet/planet/"
+src = ImageList.from_csv(path, 'train_classes.csv', folder = 'train-jpg', suffix =".jpg").split_by_rand_pct(0.2).label_from_df(label_delim = " ")
+data = src.transform(tfms, size= 128).databunch().normalize(imagenet_stats)
+data.show_batch(2, figsize= (10,15))
+
+arc = models.resnet50
+accuracy_02 = partial(accuracy_thresh, thresh = 0.2)
+f_score = partial(fbeta, thresh = 0.2)
+learn = cnn_learner(data, arc, metrics = [accuracy_02,f_score])
+
+learn.lr_find()
+learn.recorder.plot()
+lr= 0.01
+learn.fit_one_cycle(5, slice(lr))
+
+epoch	train_loss	valid_loss	accuracy_thresh	fbeta	time
+0	0.139859	0.117225	0.944309	0.895296	03:05
+1	0.111172	0.099192	0.950115	0.910139	02:59
+2	0.101200	0.092643	0.952760	0.919072	02:57
+3	0.097597	0.089125	0.955957	0.923705	02:55
+4	0.092344	0.087011	0.955354	0.925233	02:53
+
+learn.save("planet_resnet50_v1")
+learn.unfreeze()
+learn.recorder.plot()
+learn.fit_one_cycle(5, slice(1e-5,lr/5)) # means half layers with lr 10^-5 and half with lr/5
+
+epoch	train_loss	valid_loss	accuracy_thresh	fbeta	time
+0	0.094993	0.094102	0.956037	0.916347	03:04
+1	0.096704	0.091064	0.954125	0.919536	03:04
+2	0.090564	0.086548	0.956480	0.925746	03:03
+3	0.085575	0.083593	0.959641	0.926976	03:03
+4	0.079789	0.083106	0.958653	0.928655	03:12
+
+learn.save("planet_rn50_128_v2")
+learn.export()
+
+# if memory limit permits we can use large image size
+data = src.transform(tfms, size=256).databunch().normalize(imagenet_stats)
+learn.data = data
+ # same as above to tune model
